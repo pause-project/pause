@@ -25,7 +25,7 @@ button.secondary{background:#e9edf3;color:#172033}button:disabled{opacity:.45;cu
 .record-meta{font-size:13px;color:#667085}.record-note{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px}
 .pill{display:inline-block;background:#edf1f6;border-radius:999px;padding:3px 9px;font-size:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1;min-width:130px}
-.empty{color:#667085;padding:14px 0}details summary{cursor:pointer;color:#344054;font-weight:600}
+.empty{color:#667085;padding:14px 0}
 @media(max-width:520px){.filters{grid-template-columns:1fr}.card{padding:17px}}
 </style>
 </head>
@@ -33,8 +33,15 @@ button.secondary{background:#e9edf3;color:#172033}button:disabled{opacity:.45;cu
 <div class="app">
 <header><h1>Pause</h1><p>SNSを開く前に、少し立ち止まる。</p></header>
 <section class="card">
-<h2>1. どのSNSを開きますか？</h2>
-<select id="sns"><option value="X">X</option><option value="YouTube">YouTube</option><option value="Instagram">Instagram</option><option value="TikTok">TikTok</option><option value="その他">その他</option></select>
+<h2>1. どのSNS・サイトを開きますか？</h2>
+<select id="sns">
+<option value="X">X</option><option value="YouTube">YouTube</option><option value="Instagram">Instagram</option><option value="TikTok">TikTok</option><option value="その他">その他（URLを指定）</option>
+</select>
+<div id="customUrlArea" hidden>
+<label for="customUrl">開きたいサイトのURL</label>
+<input id="customUrl" type="url" inputmode="url" placeholder="https://example.com">
+<p class="hint">http:// または https:// で始まるURLを入力してください。</p>
+</div>
 <label for="purpose">2. 利用する目的は？</label>
 <select id="purpose"><option>情報収集・検索</option><option>DM・返信・通知確認</option><option>見たい投稿・動画がある（娯楽）</option><option>暇つぶし</option><option>特に目的はない／無意識</option><option>その他</option></select>
 <label for="note">補足（任意）</label><input id="note" type="text" placeholder="何を確認したいかなど">
@@ -64,16 +71,22 @@ button.secondary{background:#e9edf3;color:#172033}button:disabled{opacity:.45;cu
 <h3>記録一覧 <span class="hint" id="shown"></span></h3>
 <div id="history"><div class="empty">まだ記録がありません。</div></div>
 <div class="actions"><button class="secondary" id="csv">表示中の記録をCSV出力</button><button class="secondary" id="clear">記録を全消去</button></div>
-<p class="hint">記録はこのブラウザ内に保存されます。CSVには補足も含まれます。端末・ブラウザを変える前にCSVを書き出してください。</p>
+<p class="hint">記録はこのブラウザ内に保存されます。CSVには補足も含まれます。</p>
 </section>
 </div>
 <script>
 const $=id=>document.getElementById(id);
 const KEY='pause_records_v1';let records=[];let interval=null;let startedAt=0;let elapsed=0;let current=null;
+const destinations={
+ 'X':'https://x.com/home',
+ 'YouTube':'https://www.youtube.com/',
+ 'Instagram':'https://www.instagram.com/',
+ 'TikTok':'https://www.tiktok.com/'
+};
 try{records=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){records=[]}
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function save(){localStorage.setItem(KEY,JSON.stringify(records));render()}
-function add(result,seconds){records.unshift({date:new Date().toISOString(),sns:current.sns,purpose:current.purpose,note:current.note,result,seconds});save()}
+function add(result,seconds){records.unshift({date:new Date().toISOString(),sns:current.sns,purpose:current.purpose,note:current.note,result,seconds,destination:current.destination||''});save()}
 function filteredRecords(){
  const q=$('search').value.trim().toLocaleLowerCase(),sns=$('filterSns').value,purpose=$('filterPurpose').value,result=$('filterResult').value;
  return records.filter(x=>(!q||[x.sns,x.purpose,x.note,x.result].some(v=>String(v??'').toLocaleLowerCase().includes(q)))&&(!sns||x.sns===sns)&&(!purpose||x.purpose===purpose)&&(!result||x.result===result));
@@ -91,19 +104,39 @@ function render(){
  <div class="record-note"><strong>補足：</strong>${x.note?escapeHtml(x.note):'<span class="hint">記入なし</span>'}</div>
  </article>`).join(''):'<div class="empty">条件に一致する記録はありません。</div>';
 }
+$('sns').addEventListener('change',()=>{
+ $('customUrlArea').hidden=$('sns').value!=='その他';
+});
 $('start').onclick=()=>{
  if(interval)clearInterval(interval);
- current={sns:$('sns').value,purpose:$('purpose').value,note:$('note').value.trim()};
+ const sns=$('sns').value;
+ let destination=destinations[sns]||'';
+ if(sns==='その他'){
+   const raw=$('customUrl').value.trim();
+   let parsed;
+   try{parsed=new URL(raw)}catch(e){alert('有効なURLを入力してください。');return}
+   if(!['http:','https:'].includes(parsed.protocol)){alert('URLは http:// または https:// で始まるものを入力してください。');return}
+   destination=parsed.href;
+ }
+ current={sns,purpose:$('purpose').value,note:$('note').value.trim(),destination};
  elapsed=0;startedAt=Date.now();$('waitCard').hidden=false;$('open').disabled=true;$('timer').textContent='10';
  $('summary').textContent=`${current.sns}／${current.purpose}${current.note?'／'+current.note:''}`;
  $('status').textContent='10秒後に「利用する」を選べます。';
  interval=setInterval(()=>{elapsed=Math.floor((Date.now()-startedAt)/1000);let left=Math.max(0,10-elapsed);$('timer').textContent=left;if(left<=0){clearInterval(interval);interval=null;$('open').disabled=false;$('status').textContent='利用するか、今回はやめておくか選んでください。'}},100);
 };
 $('cancel').onclick=()=>{if(!current)return;if(interval){clearInterval(interval);interval=null}elapsed=Math.min(10,Math.floor((Date.now()-startedAt)/1000));add('中止',elapsed);$('status').textContent='今回は中止しました。記録しました。';$('open').disabled=true;$('timer').textContent='中止';current=null};
-$('open').onclick=()=>{if(!current||$('open').disabled)return;add('利用',10);$('status').textContent='利用を記録しました。SNSアプリはこの試作品からは自動起動しません。';$('open').disabled=true;current=null};
+$('open').onclick=()=>{
+ if(!current||$('open').disabled)return;
+ const destination=current.destination;
+ add('利用',10);
+ $('open').disabled=true;
+ $('status').textContent='利用を記録しました。選択したサイトを開きます。';
+ current=null;
+ if(destination){window.location.assign(destination)}
+};
 ['search','filterSns','filterPurpose','filterResult'].forEach(id=>$(id).addEventListener(id==='search'?'input':'change',render));
 $('csv').onclick=()=>{
- const list=filteredRecords(),rows=[['日時','SNS','目的','補足','結果','待機秒数'],...list.map(x=>[x.date,x.sns,x.purpose,x.note,x.result,x.seconds])];
+ const list=filteredRecords(),rows=[['日時','SNS/サイト','目的','補足','結果','待機秒数','遷移先URL'],...list.map(x=>[x.date,x.sns,x.purpose,x.note,x.result,x.seconds,x.destination||''])];
  const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
  const a=document.createElement('a');const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.href=url;a.download='pause_records.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
