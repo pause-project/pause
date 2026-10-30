@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#172033">
+<title>Pause</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f5f8}
+*{box-sizing:border-box}body{margin:0;padding:24px 14px}.app{max-width:760px;margin:0 auto}
+header{margin:8px 0 20px}h1{font-size:32px;margin:0}header p,.hint{color:#667085}
+.card{background:white;border-radius:18px;padding:22px;margin:14px 0;box-shadow:0 3px 16px #1822300d}
+h2{font-size:18px;margin:0 0 14px}h3{font-size:16px;margin:22px 0 10px}
+label{display:block;font-weight:600;margin:14px 0 7px}
+select,input,button{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid #cbd2dc;background:white}
+button{cursor:pointer;font-weight:700;border:0;background:#263653;color:white;margin-top:10px}
+button.secondary{background:#e9edf3;color:#172033}button:disabled{opacity:.45;cursor:not-allowed}
+.timer{text-align:center;font-size:48px;font-weight:750;margin:12px 0}.hint{font-size:14px}
+.status{min-height:24px;color:#475467}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:#f3f5f8;padding:12px;border-radius:12px}.stat strong{display:block;font-size:24px}
+.filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.filters label{margin:0}.filters input,.filters select{margin-top:6px}
+.record{border:1px solid #e5e9ef;border-radius:12px;padding:12px;margin:9px 0}
+.record-top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.record-meta{font-size:13px;color:#667085}.record-note{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px}
+.pill{display:inline-block;background:#edf1f6;border-radius:999px;padding:3px 9px;font-size:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1;min-width:130px}
+.empty{color:#667085;padding:14px 0}details summary{cursor:pointer;color:#344054;font-weight:600}
+@media(max-width:520px){.filters{grid-template-columns:1fr}.card{padding:17px}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>Pause</h1><p>SNSを開く前に、少し立ち止まる。</p></header>
+<section class="card">
+<h2>1. どのSNSを開きますか？</h2>
+<select id="sns"><option value="X">X</option><option value="YouTube">YouTube</option><option value="Instagram">Instagram</option><option value="TikTok">TikTok</option><option value="その他">その他</option></select>
+<label for="purpose">2. 利用する目的は？</label>
+<select id="purpose"><option>情報収集・検索</option><option>DM・返信・通知確認</option><option>見たい投稿・動画がある（娯楽）</option><option>暇つぶし</option><option>特に目的はない／無意識</option><option>その他</option></select>
+<label for="note">補足（任意）</label><input id="note" type="text" placeholder="何を確認したいかなど">
+<button id="start">10秒待機を始める</button>
+</section>
+<section class="card" id="waitCard" hidden>
+<h2>少し考える時間</h2><div class="timer" id="timer">10</div>
+<p class="hint" id="summary"></p><p class="status" id="status" aria-live="polite">10秒後に「利用する」を選べます。</p>
+<div class="actions"><button id="open" disabled>利用する</button><button class="secondary" id="cancel">今回はやめておく</button></div>
+</section>
+<section class="card">
+<h2>記録・統計</h2>
+<div class="stats">
+<div class="stat"><strong id="total">0</strong><span>記録件数</span></div>
+<div class="stat"><strong id="stopped">0</strong><span>中止した回数</span></div>
+<div class="stat"><strong id="used">0</strong><span>利用した回数</span></div>
+<div class="stat"><strong id="rate">0%</strong><span>中止率</span></div>
+</div>
+<h3>目的別の記録</h3><div id="byPurpose" class="hint">まだ記録がありません。</div>
+<h3>記録を検索・絞り込み</h3>
+<div class="filters">
+<label>キーワード（補足も検索）<input id="search" type="search" placeholder="例：仕事、ニュース、友人"></label>
+<label>SNS<select id="filterSns"><option value="">すべて</option><option>X</option><option>YouTube</option><option>Instagram</option><option>TikTok</option><option>その他</option></select></label>
+<label>目的<select id="filterPurpose"><option value="">すべて</option><option>情報収集・検索</option><option>DM・返信・通知確認</option><option>見たい投稿・動画がある（娯楽）</option><option>暇つぶし</option><option>特に目的はない／無意識</option><option>その他</option></select></label>
+<label>結果<select id="filterResult"><option value="">すべて</option><option>利用</option><option>中止</option></select></label>
+</div>
+<h3>記録一覧 <span class="hint" id="shown"></span></h3>
+<div id="history"><div class="empty">まだ記録がありません。</div></div>
+<div class="actions"><button class="secondary" id="csv">表示中の記録をCSV出力</button><button class="secondary" id="clear">記録を全消去</button></div>
+<p class="hint">記録はこのブラウザ内に保存されます。CSVには補足も含まれます。端末・ブラウザを変える前にCSVを書き出してください。</p>
+</section>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const KEY='pause_records_v1';let records=[];let interval=null;let startedAt=0;let elapsed=0;let current=null;
+try{records=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){records=[]}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function save(){localStorage.setItem(KEY,JSON.stringify(records));render()}
+function add(result,seconds){records.unshift({date:new Date().toISOString(),sns:current.sns,purpose:current.purpose,note:current.note,result,seconds});save()}
+function filteredRecords(){
+ const q=$('search').value.trim().toLocaleLowerCase(),sns=$('filterSns').value,purpose=$('filterPurpose').value,result=$('filterResult').value;
+ return records.filter(x=>(!q||[x.sns,x.purpose,x.note,x.result].some(v=>String(v??'').toLocaleLowerCase().includes(q)))&&(!sns||x.sns===sns)&&(!purpose||x.purpose===purpose)&&(!result||x.result===result));
+}
+function render(){
+ $('total').textContent=records.length;
+ const stopped=records.filter(x=>x.result==='中止').length,used=records.filter(x=>x.result==='利用').length;
+ $('stopped').textContent=stopped;$('used').textContent=used;$('rate').textContent=(records.length?Math.round(stopped/records.length*100):0)+'%';
+ const counts={};records.forEach(x=>counts[x.purpose]=(counts[x.purpose]||0)+1);
+ $('byPurpose').innerHTML=Object.keys(counts).length?Object.entries(counts).map(([k,v])=>`${escapeHtml(k)}：${v}件`).join('<br>'):'まだ記録がありません。';
+ const list=filteredRecords();$('shown').textContent=`（${list.length}件）`;
+ $('history').innerHTML=list.length?list.map(x=>`<article class="record">
+ <div class="record-top"><strong>${escapeHtml(x.sns)} <span class="pill">${escapeHtml(x.result)}</span></strong><span class="record-meta">${new Date(x.date).toLocaleString('ja-JP')}</span></div>
+ <div>${escapeHtml(x.purpose)} ・ 待機 ${Number(x.seconds)||0}秒</div>
+ <div class="record-note"><strong>補足：</strong>${x.note?escapeHtml(x.note):'<span class="hint">記入なし</span>'}</div>
+ </article>`).join(''):'<div class="empty">条件に一致する記録はありません。</div>';
+}
+$('start').onclick=()=>{
+ if(interval)clearInterval(interval);
+ current={sns:$('sns').value,purpose:$('purpose').value,note:$('note').value.trim()};
+ elapsed=0;startedAt=Date.now();$('waitCard').hidden=false;$('open').disabled=true;$('timer').textContent='10';
+ $('summary').textContent=`${current.sns}／${current.purpose}${current.note?'／'+current.note:''}`;
+ $('status').textContent='10秒後に「利用する」を選べます。';
+ interval=setInterval(()=>{elapsed=Math.floor((Date.now()-startedAt)/1000);let left=Math.max(0,10-elapsed);$('timer').textContent=left;if(left<=0){clearInterval(interval);interval=null;$('open').disabled=false;$('status').textContent='利用するか、今回はやめておくか選んでください。'}},100);
+};
+$('cancel').onclick=()=>{if(!current)return;if(interval){clearInterval(interval);interval=null}elapsed=Math.min(10,Math.floor((Date.now()-startedAt)/1000));add('中止',elapsed);$('status').textContent='今回は中止しました。記録しました。';$('open').disabled=true;$('timer').textContent='中止';current=null};
+$('open').onclick=()=>{if(!current||$('open').disabled)return;add('利用',10);$('status').textContent='利用を記録しました。SNSアプリはこの試作品からは自動起動しません。';$('open').disabled=true;current=null};
+['search','filterSns','filterPurpose','filterResult'].forEach(id=>$(id).addEventListener(id==='search'?'input':'change',render));
+$('csv').onclick=()=>{
+ const list=filteredRecords(),rows=[['日時','SNS','目的','補足','結果','待機秒数'],...list.map(x=>[x.date,x.sns,x.purpose,x.note,x.result,x.seconds])];
+ const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+ const a=document.createElement('a');const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.href=url;a.download='pause_records.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+$('clear').onclick=()=>{if(confirm('すべての記録を削除します。よろしいですか？')){records=[];save()}};
+render();
+</script>
+</body></html>
